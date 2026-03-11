@@ -108,12 +108,13 @@ export async function POST(req: NextRequest) {
     }
 
     const waMessageId = waData.messages?.[0]?.id || `local_${Date.now()}`;
+    const agentName = process.env.NEXT_PUBLIC_APP_NAME || "Sistema";
 
     // Save sent message to DB with file info
     await pool.query(
       `INSERT INTO messages (mensaje_id, session_id, mensaje, is_bot, tipo_archivo, ruta_archivo, fecha_creacion, status, wa_message_id, nombre_agente)
-       VALUES ($1, $2, $3, true, $4, $5, NOW(), 1, $1, process.env.NEXT_PUBLIC_APP_NAME || 'Sistema')`,
-      [waMessageId, to, savedMessage, fileType, fileUrl]
+       VALUES ($1, $2, $3, true, $4, $5, NOW(), 1, $1, $6)`,
+      [waMessageId, to, savedMessage, fileType, fileUrl, agentName]
     );
 
     // Update contact's last message time

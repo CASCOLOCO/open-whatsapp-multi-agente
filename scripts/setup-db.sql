@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS contacts (
   fecha_ultimo_mensaje TIMESTAMP,
   assigned_agent_id INTEGER,
   conversation_status INTEGER DEFAULT 0,
+  resolved_at TIMESTAMP,
   snoozed_until TIMESTAMP,
   custom_fields JSONB DEFAULT '{}'
 );
@@ -34,15 +35,16 @@ CREATE TABLE IF NOT EXISTS messages (
   mensaje TEXT,
   is_bot BOOLEAN DEFAULT false,
   wa_message_id TEXT,
-  message_type TEXT DEFAULT 'text',
-  file_type TEXT,
-  file_url TEXT,
+  tipo_archivo TEXT,
+  ruta_archivo TEXT,
   fecha_creacion TIMESTAMP DEFAULT NOW(),
-  send_status INTEGER DEFAULT 1,
+  status INTEGER DEFAULT 1,
   error_message TEXT,
-  agent_name TEXT,
+  nombre_agente TEXT,
   metadata JSONB DEFAULT '{}',
-  is_note BOOLEAN DEFAULT false
+  nota_interna BOOLEAN DEFAULT false,
+  mensaje_eliminado BOOLEAN DEFAULT false,
+  private BOOLEAN DEFAULT false
 );
 
 -- ─── Agentes ───
@@ -60,7 +62,8 @@ CREATE TABLE IF NOT EXISTS agents (
 -- ─── Etiquetas ───
 CREATE TABLE IF NOT EXISTS labels (
   id SERIAL PRIMARY KEY,
-  name TEXT UNIQUE NOT NULL,
+  name TEXT,
+  title TEXT UNIQUE,
   color TEXT DEFAULT '#6B7280',
   created_at TIMESTAMP DEFAULT NOW()
 );
@@ -79,8 +82,7 @@ CREATE TABLE IF NOT EXISTS canned_responses (
   id SERIAL PRIMARY KEY,
   short_code TEXT UNIQUE NOT NULL,
   content TEXT NOT NULL,
-  attachment_url TEXT,
-  attachment_type TEXT,
+  media JSONB DEFAULT '[]',
   created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -99,6 +101,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
   message TEXT,
+  message_text TEXT,
   template_name TEXT,
   template_lang TEXT DEFAULT 'es',
   filter_criteria JSONB DEFAULT '{}',
@@ -119,6 +122,7 @@ CREATE TABLE IF NOT EXISTS campaign_recipients (
   contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
   session_id TEXT,
   status TEXT DEFAULT 'pending',
+  wa_message_id TEXT,
   sent_at TIMESTAMP,
   error_message TEXT
 );
@@ -166,6 +170,8 @@ CREATE TABLE IF NOT EXISTS csat_responses (
 -- ─── Indices para rendimiento ───
 CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_fecha ON messages(fecha_creacion DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_mensaje_id_unique ON messages(mensaje_id);
+CREATE INDEX IF NOT EXISTS idx_messages_wa_message_id ON messages(wa_message_id);
 CREATE INDEX IF NOT EXISTS idx_contacts_session_id ON contacts(session_id);
 CREATE INDEX IF NOT EXISTS idx_contacts_telefono ON contacts(telefono);
 CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts(conversation_status);
@@ -175,9 +181,36 @@ CREATE INDEX IF NOT EXISTS idx_campaign_recipients_campaign ON campaign_recipien
 
 -- ─── Datos iniciales ───
 
+-- ─── Backfills / compat ───
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP;
+
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS tipo_archivo TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS ruta_archivo TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS status INTEGER DEFAULT 1;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS nombre_agente TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS nota_interna BOOLEAN DEFAULT false;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS mensaje_eliminado BOOLEAN DEFAULT false;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS private BOOLEAN DEFAULT false;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}';
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS error_message TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS wa_message_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_mensaje_id_unique ON messages(mensaje_id);
+CREATE INDEX IF NOT EXISTS idx_messages_wa_message_id ON messages(wa_message_id);
+
+ALTER TABLE labels ADD COLUMN IF NOT EXISTS title TEXT;
+UPDATE labels SET title = COALESCE(title, name) WHERE title IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_labels_title_unique ON labels(title);
+
+ALTER TABLE canned_responses ADD COLUMN IF NOT EXISTS media JSONB DEFAULT '[]';
+
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS message_text TEXT;
+UPDATE campaigns SET message_text = COALESCE(message_text, message) WHERE message_text IS NULL;
+
+ALTER TABLE campaign_recipients ADD COLUMN IF NOT EXISTS wa_message_id TEXT;
+
 -- Configuracion por defecto
 INSERT INTO settings (key, value) VALUES
-  ('business_hours', '{"enabled": false, "timezone": "America/Bogota", "schedule": {}, "out_of_hours_message": "Estamos fuera de horario. Te responderemos pronto."}'),
+  ('business_hours', '{"enabled": false, "timezone": "America/Bogota", "schedule": {}, "auto_message": "Estamos fuera de horario. Te responderemos pronto."}'),
   ('welcome_message', '{"enabled": false, "message": "Hola {nombre}! Bienvenido. En que podemos ayudarte?", "delay_seconds": 5}'),
   ('csat', '{"enabled": false, "message": "Como calificarias nuestra atencion? Responde del 1 al 5", "trigger": "on_resolve"}')
 ON CONFLICT (key) DO NOTHING;
@@ -192,12 +225,12 @@ INSERT INTO integrations (id, name) VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- Etiquetas de ejemplo
-INSERT INTO labels (name, color) VALUES
+INSERT INTO labels (title, color) VALUES
   ('Nuevo', '#22C55E'),
   ('VIP', '#EAB308'),
   ('Soporte', '#3B82F6'),
   ('Urgente', '#EF4444')
-ON CONFLICT (name) DO NOTHING;
+ON CONFLICT (title) DO NOTHING;
 
 -- ============================================
 -- Setup completado!

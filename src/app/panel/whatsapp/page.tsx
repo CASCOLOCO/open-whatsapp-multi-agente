@@ -319,6 +319,7 @@ export default function WhatsAppPage() {
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [templates, setTemplates] = useState<{ id: number | string; name: string; template_id: string; components: any; category?: string; language?: string; status?: string }[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [bgMusicPlaying, setBgMusicPlaying] = useState(false);
   const [theme, setTheme] = useState<ThemeKey>("dark");
   const [showThemePanel, setShowThemePanel] = useState(false);
 
@@ -357,6 +358,7 @@ export default function WhatsAppPage() {
   const isInitialLoadRef = useRef<boolean>(true);
   const shouldScrollToBottomRef = useRef<boolean>(false);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const bgMusicRef = useRef<HTMLAudioElement>(null);
   // ─── Fetch functions ───
   const fetchContacts = useCallback(async (p: number, s: string, status?: string, labelId?: number | null, dFrom?: string, dTo?: string, agId?: string) => {
     setLoading(true);
